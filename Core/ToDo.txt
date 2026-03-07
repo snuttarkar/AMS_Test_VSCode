@@ -1,2 +1,5 @@
-Issues with peripeheral number 3 gnd connector soldering
-4 works check for all other segments
+1. Check balancing code in adBms_Application.c
+2. Check fan ctrl in code changes md file
+3. Write code for SDC ctrl
+4. Work on can framing for DAQ
+5. Work on charging can

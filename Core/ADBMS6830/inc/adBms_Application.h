@@ -91,6 +91,11 @@ void adBms6830_read_rdcsall_voltage(uint8_t tIC, cell_asic *ic);
 void adBms6830_read_rdacsall_voltage(uint8_t tIC, cell_asic *ic);
 void adBms6830_read_rdasall_voltage(uint8_t tIC, cell_asic *ic);
 void adBms6830_setgpo_69(uint8_t tIC, cell_asic *ic);
+uint16_t adBms6830_update_cell_over_avg_bit_hysteresis(float cellV,
+													   float avgSegCellV,
+													   uint8_t cellIndex,
+													   uint16_t currentMask,
+													   float hysteresis);
 float v2Temp (float x);
 float get_temp(float y);
 float get_temp_from_voltage(float voltage);

@@ -98,17 +98,7 @@ static bms_ic_fault_state_t g_ic_fault[1];
 static uint8_t BMS_HasAnyPecError(const cell_asic *ic)
 {
     return (uint8_t)(
-        (ic->cccrc.cfgr_pec  != 0U) ||
-        (ic->cccrc.cell_pec  != 0U) ||
-        (ic->cccrc.acell_pec != 0U) ||
-        (ic->cccrc.scell_pec != 0U) ||
-        (ic->cccrc.fcell_pec != 0U) ||
-        (ic->cccrc.aux_pec   != 0U) ||
-        (ic->cccrc.raux_pec  != 0U) ||
-        (ic->cccrc.stat_pec  != 0U) ||
-        (ic->cccrc.comm_pec  != 0U) ||
-        (ic->cccrc.pwm_pec   != 0U) ||
-        (ic->cccrc.sid_pec   != 0U)
+       Recomme
     );
 }
 ```
@@ -351,6 +341,50 @@ void FeedWatchdogIfHealthy(void)
     if ((AMS_SAFE != 0U) && (g_ic_fault[0].hard_fault == 0U)) {
         HAL_IWDG_Refresh(&hiwdg);
     }
+}
+```
+
+### 5.3 Temperature threshold GPIO control (5 pins + hysteresis)
+
+```c
+/* Tunable variables */
+static float g_temp_trip_c = 35.0f;      /* Trip temperature in degC */
+static float g_temp_hyst_c = 2.0f;       /* Hysteresis band in degC */
+
+/* Internal latched state (0 = OFF/LOW, 1 = ON/HIGH) */
+static uint8_t g_temp_gpio_state = 0U;
+
+/* Optional setter if you want to tune at runtime */
+void TempGpio_SetThresholds(float trip_c, float hyst_c)
+{
+    g_temp_trip_c = trip_c;
+    g_temp_hyst_c = (hyst_c >= 0.0f) ? hyst_c : 0.0f;
+}
+
+/* Call this periodically with measured temperature */
+void TempGpio_UpdateFromTemp(float temp_c)
+{
+    const float set_th = g_temp_trip_c + g_temp_hyst_c;
+    const float clr_th = g_temp_trip_c - g_temp_hyst_c;
+
+    if (g_temp_gpio_state == 0U) {
+        if (temp_c > set_th) {
+            g_temp_gpio_state = 1U;
+        }
+    } else {
+        if (temp_c < clr_th) {
+            g_temp_gpio_state = 0U;
+        }
+    }
+
+    GPIO_PinState pin_state = (g_temp_gpio_state != 0U) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+
+    /* Drive exactly 5 pins */
+    HAL_GPIO_WritePin(GPIOE, D5_Pin, pin_state);
+    HAL_GPIO_WritePin(GPIOF, D2_Pin, pin_state);
+    HAL_GPIO_WritePin(GPIOF, D4_Pin, pin_state);
+    HAL_GPIO_WritePin(GPIOF, D7_Pin, pin_state);
+    HAL_GPIO_WritePin(GPIOF, D8_Pin, pin_state);
 }
 ```
 

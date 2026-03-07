@@ -88,6 +88,7 @@ const uint16_t MEASUREMENT_LOOP_TIME  = 10;     /* milliseconds(mS)*/
 uint32_t loop_count = 0;
 uint32_t pladc_count;
 uint8_t val;
+static const float DCC_HYSTERESIS_V = 0.010f;
 /*Loop Measurement Setup These Variables are ENABLED or DISABLED Remember ALL CAPS*/
 LOOP_MEASURMENT MEASURE_CELL            = ENABLED;        /*   This is ENABLED or DISABLED       */
 LOOP_MEASURMENT MEASURE_AVG_CELL        = ENABLED;        /*   This is ENABLED or DISABLED       */
@@ -407,6 +408,34 @@ void adBms6830_start_adc_cell_voltage_measurment(uint8_t tIC)
   printPollAdcConvTime(pladc_count);
 }
 
+static void adBms6830_update_dcc_from_cell_average(uint8_t tIC, cell_asic *ic)
+{
+  for (uint8_t cic = 0U; cic < tIC; cic++)
+  {
+    float sumCellV = 0.0f;
+
+    for (uint8_t cellIndex = 0U; cellIndex < 12U; cellIndex++)
+    {
+      sumCellV += getVoltage(ic[cic].cell.c_codes[cellIndex]);
+    }
+
+    float avgSegCellV = sumCellV / 12.0f;
+    uint16_t dccMask = ic[cic].tx_cfgb.dcc;
+
+    for (uint8_t cellIndex = 0U; cellIndex < 12U; cellIndex++)
+    {
+      float cellV = getVoltage(ic[cic].cell.c_codes[cellIndex]);
+      dccMask = adBms6830_update_cell_over_avg_bit_hysteresis(cellV,
+                                                               avgSegCellV,
+                                                               cellIndex,
+                                                               dccMask,
+                                                               DCC_HYSTERESIS_V);
+    }
+
+    ic[cic].tx_cfgb.dcc = dccMask;
+  }
+}
+
 /**
 *******************************************************************************
 * @brief Read Cell Voltages
@@ -421,6 +450,11 @@ void adBms6830_read_cell_voltages(uint8_t tIC, cell_asic *ic)
   adBmsReadData(tIC, &ic[0], RDCVD, Cell, D);
   adBmsReadData(tIC, &ic[0], RDCVE, Cell, E);
   adBmsReadData(tIC, &ic[0], RDCVF, Cell, F);
+
+  adBms6830_update_dcc_from_cell_average(tIC, &ic[0]);
+  adBmsWakeupIc(tIC);
+  adBmsWriteData(tIC, &ic[0], WRCFGB, Config, B);
+
   printVoltages(tIC, &ic[0], Cell);
 }
 
@@ -638,85 +672,6 @@ void adBms6830_read_status_registers(uint8_t tIC, cell_asic *ic)
 * @brief Loop measurment.
 *******************************************************************************
 */
-void measurement_loop()
-{
-  if(MEASURE_CELL == ENABLED)
-  {
-    adBmsReadData(TOTAL_IC, &IC[0], RDCVA, Cell, A);
-    adBmsReadData(TOTAL_IC, &IC[0], RDCVB, Cell, B);
-    adBmsReadData(TOTAL_IC, &IC[0], RDCVC, Cell, C);
-    adBmsReadData(TOTAL_IC, &IC[0], RDCVD, Cell, D);
-    adBmsReadData(TOTAL_IC, &IC[0], RDCVE, Cell, E);
-    adBmsReadData(TOTAL_IC, &IC[0], RDCVF, Cell, F);
-    printVoltages(TOTAL_IC, &IC[0], Cell);
-  }
-
-  if(MEASURE_AVG_CELL == ENABLED)
-  {
-    adBmsReadData(TOTAL_IC, &IC[0], RDACA, AvgCell, A);
-    adBmsReadData(TOTAL_IC, &IC[0], RDACB, AvgCell, B);
-    adBmsReadData(TOTAL_IC, &IC[0], RDACC, AvgCell, C);
-    adBmsReadData(TOTAL_IC, &IC[0], RDACD, AvgCell, D);
-    adBmsReadData(TOTAL_IC, &IC[0], RDACE, AvgCell, E);
-    adBmsReadData(TOTAL_IC, &IC[0], RDACF, AvgCell, F);
-    printVoltages(TOTAL_IC, &IC[0], AvgCell);
-  }
-
-  if(MEASURE_F_CELL == ENABLED)
-  {
-    adBmsReadData(TOTAL_IC, &IC[0], RDFCA, F_volt, A);
-    adBmsReadData(TOTAL_IC, &IC[0], RDFCB, F_volt, B);
-    adBmsReadData(TOTAL_IC, &IC[0], RDFCC, F_volt, C);
-    adBmsReadData(TOTAL_IC, &IC[0], RDFCD, F_volt, D);
-    adBmsReadData(TOTAL_IC, &IC[0], RDFCE, F_volt, E);
-    adBmsReadData(TOTAL_IC, &IC[0], RDFCF, F_volt, F);
-    printVoltages(TOTAL_IC, &IC[0], F_volt);
-  }
-
-  if(MEASURE_S_VOLTAGE == ENABLED)
-  {
-    adBmsReadData(TOTAL_IC, &IC[0], RDSVA, S_volt, A);
-    adBmsReadData(TOTAL_IC, &IC[0], RDSVB, S_volt, B);
-    adBmsReadData(TOTAL_IC, &IC[0], RDSVC, S_volt, C);
-    adBmsReadData(TOTAL_IC, &IC[0], RDSVD, S_volt, D);
-    adBmsReadData(TOTAL_IC, &IC[0], RDSVE, S_volt, E);
-    adBmsReadData(TOTAL_IC, &IC[0], RDSVF, S_volt, F);
-    printVoltages(TOTAL_IC, &IC[0], S_volt);
-  }
-
-  if(MEASURE_AUX == ENABLED)
-  {
-    adBms6830_Adax(AUX_OPEN_WIRE_DETECTION, OPEN_WIRE_CURRENT_SOURCE, AUX_CH_TO_CONVERT);
-    adBmsPollAdc(PLAUX1);
-    adBmsReadData(TOTAL_IC, &IC[0], RDAUXA, Aux, A);
-    adBmsReadData(TOTAL_IC, &IC[0], RDAUXB, Aux, B);
-    adBmsReadData(TOTAL_IC, &IC[0], RDAUXC, Aux, C);
-    adBmsReadData(TOTAL_IC, &IC[0], RDAUXD, Aux, D);
-    printVoltages(TOTAL_IC, &IC[0], Aux);
-  }
-
-  if(MEASURE_RAUX == ENABLED)
-  {
-    adBmsWakeupIc(TOTAL_IC);
-    adBms6830_Adax2(AUX_CH_TO_CONVERT);
-    adBmsPollAdc(PLAUX2);
-    adBmsReadData(TOTAL_IC, &IC[0], RDRAXA, RAux, A);
-    adBmsReadData(TOTAL_IC, &IC[0], RDRAXB, RAux, B);
-    adBmsReadData(TOTAL_IC, &IC[0], RDRAXC, RAux, C);
-    adBmsReadData(TOTAL_IC, &IC[0], RDRAXD, RAux, D);
-    printVoltages(TOTAL_IC, &IC[0], RAux);
-  }
-
-  if(MEASURE_STAT == ENABLED)
-  {
-    adBmsReadData(TOTAL_IC, &IC[0], RDSTATA, Status, A);
-    adBmsReadData(TOTAL_IC, &IC[0], RDSTATB, Status, B);
-    adBmsReadData(TOTAL_IC, &IC[0], RDSTATC, Status, C);
-    adBmsReadData(TOTAL_IC, &IC[0], RDSTATD, Status, D);
-    adBmsReadData(TOTAL_IC, &IC[0], RDSTATE, Status, E);
-    printStatus(TOTAL_IC, &IC[0], Status, ALL_GRP);
-  }
-}
 
 /**
 *******************************************************************************
@@ -926,6 +881,33 @@ float get_temp_from_voltage(float voltage) {
 
     return temp;
 }
+
+  uint16_t adBms6830_update_cell_over_avg_bit_hysteresis(float cellV,
+                               float avgSegCellV,
+                               uint8_t cellIndex,
+                               uint16_t currentMask,
+                               float hysteresis)
+  {
+    if ((cellIndex >= 12U) || (hysteresis < 0.0f)) {
+      return currentMask;
+    }
+
+    uint16_t cellBit = (uint16_t)(1U << cellIndex);
+    float setThreshold = avgSegCellV + hysteresis;
+    float clearThreshold = avgSegCellV - hysteresis;
+
+    if ((currentMask & cellBit) == 0U) {
+      if (cellV > setThreshold) {
+        currentMask |= cellBit;
+      }
+    } else {
+      if (cellV < clearThreshold) {
+        currentMask &= (uint16_t)(~cellBit);
+      }
+    }
+
+    return currentMask;
+  }
 
 // Coeff 2
  float get_temp(float y) {
